@@ -20,7 +20,7 @@ export interface UserProfile {
 interface AuthContextType {
   user: UserProfile | null;
   loading: boolean;
-  switchUser: (email: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -28,7 +28,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  switchUser: async () => false,
+  login: async () => ({ ok: false }),
   logout: async () => {},
   refreshUser: async () => {},
 });
@@ -44,18 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setUser(data.user);
       } else {
-        // Se não autenticado no início, conectar como COO por padrão para demonstração imediata
-        const switchRes = await fetch("/api/auth/switch-user", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "pedro@valtexa.com" }),
-        });
-        if (switchRes.ok) {
-          const switchData = await switchRes.json();
-          setUser(switchData.user);
-        } else {
-          setUser(null);
-        }
+        setUser(null);
       }
     } catch (err) {
       console.error("Erro ao carregar sessão:", err);
@@ -69,23 +58,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchCurrentUser();
   }, []);
 
-  const switchUser = async (email: string) => {
-    setLoading(true);
+  const login = async (email: string, password: string) => {
     try {
-      const res = await fetch("/api/auth/switch-user", {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, password }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        await fetchCurrentUser();
-        return true;
+        setUser(data.user);
+        return { ok: true };
       }
-      return false;
+      return { ok: false, error: data.error || "Falha ao entrar" };
     } catch {
-      return false;
-    } finally {
-      setLoading(false);
+      return { ok: false, error: "Erro de conexão" };
     }
   };
 
@@ -95,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, switchUser, logout, refreshUser: fetchCurrentUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser: fetchCurrentUser }}>
       {children}
     </AuthContext.Provider>
   );

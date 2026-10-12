@@ -47,11 +47,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Aceita a senha específica cadastrada ou a senha padrão corporativa
-    const passwordMatch =
-      (await bcrypt.compare(password, user.passwordHash)) ||
-      (await bcrypt.compare(password, await bcrypt.hash("Valtexa@2026", 10))) ||
-      password === "Valtexa@2026";
+    const passwordMatch = await bcrypt.compare(password, user.passwordHash);
 
     if (!passwordMatch) {
       return NextResponse.json(

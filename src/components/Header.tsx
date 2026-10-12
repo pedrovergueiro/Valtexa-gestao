@@ -16,7 +16,7 @@ interface NotificationItem {
 }
 
 export function Header() {
-  const { user, switchUser } = useAuth();
+  const { user, logout } = useAuth();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -49,13 +49,6 @@ export function Header() {
     });
     fetchNotifications();
   };
-
-  const usersList = [
-    { email: "pedro@valtexa.com", name: "Pedro Lucas Vergueiro", role: "COO", desc: "Operações Gerais & Coordenação" },
-    { email: "murilo@valtexa.com", name: "Murilo", role: "CEO", desc: "Negócios & Estratégia Corporativa" },
-    { email: "gabriel@valtexa.com", name: "Gabriel", role: "CTO", desc: "Tecnologia, IA & ValTexa Rover V3" },
-    { email: "nicholas@valtexa.com", name: "Nicholas", role: "CPO", desc: "Produto, UX & Requisitos de Campo" },
-  ];
 
   return (
     <header className="h-16 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-6 flex items-center justify-between sticky top-0 z-20">
@@ -161,38 +154,19 @@ export function Header() {
           {showUserDropdown && (
             <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-2">
               <div className="px-3 py-2 border-b border-slate-800 text-[11px] text-slate-400">
-                <span className="font-semibold text-slate-300 block">Alternar Perfil Operacional</span>
-                Simule a experiência e permissões de cada membro da liderança:
+                <span className="font-semibold text-slate-300 block">{user?.name}</span>
+                {user?.email}
               </div>
               <div className="py-1">
-                {usersList.map((u) => {
-                  const isCurrent = user?.email === u.email;
-                  return (
-                    <button
-                      key={u.email}
-                      onClick={() => {
-                        switchUser(u.email);
-                        setShowUserDropdown(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                        isCurrent
-                          ? "bg-emerald-600/20 text-emerald-300 font-medium"
-                          : "text-slate-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold">{u.name}</span>
-                          <span className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-emerald-400 border border-slate-700 font-mono">
-                            {u.role}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 block">{u.desc}</span>
-                      </div>
-                      {isCurrent && <Check className="w-4 h-4 text-emerald-400" />}
-                    </button>
-                  );
-                })}
+                <button
+                  onClick={() => {
+                    setShowUserDropdown(false);
+                    logout();
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+                >
+                  Sair
+                </button>
               </div>
             </div>
           )}
