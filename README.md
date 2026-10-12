@@ -11,19 +11,20 @@ Plataforma web interna de gestão corporativa da ValTexa, startup de tecnologia 
 | **CTO** — Tecnologia, IA & Rover V3 | Gabriel | `gabriel@valtexa.com` | `Valtexa@Gabriel2026` |
 | **CPO** — Produto, UX & Requisitos | Nicholas | `nicholas@valtexa.com` | `Valtexa@Nicholas2026` |
 
-> **Senha mestre de emergência:** `Valtexa@2026` (funciona com qualquer email acima)
-
 ## Como Executar
 
 ```bash
-# Instalar dependências
+# 1. Instalar dependências
 npm install
 
-# Resetar o banco de dados e aplicar seed
-npx prisma migrate reset --force
-npx prisma db seed
+# 2. Criar o .env a partir do exemplo
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
 
-# Iniciar em modo desenvolvimento
+# 3. Criar o banco SQLite (prisma/dev.db) e popular com os usuários
+npm run db:push
+npm run db:seed
+
+# 4. Iniciar em modo desenvolvimento
 npm run dev
 ```
 
