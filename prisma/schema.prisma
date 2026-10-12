@@ -1,0 +1,675 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. USUÁRIOS, PAPÉIS E AUTORIZAÇÃO (RBAC)
+// ==========================================
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  name            String
+  passwordHash    String
+  title           String    // Ex: "Chief Operating Officer", "Engenheiro de Robótica"
+  initials        String?
+  avatarUrl       String?
+  isActive        Boolean   @default(true)
+  deactivatedAt   DateTime?
+  deactivationReason String?
+  timezone        String    @default("America/Sao_Paulo")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  departmentId    String?
+  department      Department? @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+
+  // Relações N:N com papéis
+  roles           UserRole[]
+
+  // Relações hierárquicas (Organograma)
+  subordinates    ReportingRelationship[] @relation("ManagerRelation")
+  managers        ReportingRelationship[] @relation("SubordinateRelation")
+
+  // Equipes
+  teamMemberships TeamMember[]
+
+  // Tarefas
+  createdTasks    Task[]            @relation("TaskCreator")
+  assignedTasks   Task[]            @relation("TaskAssignee")
+  participatingTasks TaskAssignee[]
+  taskComments    TaskComment[]
+  createdSubtasks Subtask[]         @relation("SubtaskCreator")
+  assignedSubtasks Subtask[]        @relation("SubtaskAssignee")
+  checkedItems    ChecklistItem[]   @relation("ChecklistCompleter")
+  taskStatusLogs  TaskStatusHistory[]
+  approvalsHandled Approval[]       @relation("ApprovalReviewer")
+  approvalsRequested Approval[]     @relation("ApprovalRequester")
+
+  // Projetos
+  ledProjects     Project[]         @relation("ProjectLead")
+  projectMemberships ProjectMember[]
+
+  // Agenda Executiva Semanal
+  createdWeeklyPlans WeeklyPlan[]   @relation("WeeklyPlanCreator")
+  weeklyPlanItems WeeklyPlanItem[]  @relation("WeeklyPlanItemUser")
+
+  // Reuniões e Decisões
+  organizedMeetings Meeting[]       @relation("MeetingOrganizer")
+  meetingParticipations MeetingParticipant[]
+  decisionsResponsible Decision[]   @relation("DecisionResponsible")
+
+  // Base de Conhecimento
+  createdDocuments KnowledgeDocument[] @relation("DocumentAuthor")
+  documentVersions DocumentVersion[]   @relation("DocumentVersionAuthor")
+
+  // Notificações e Auditoria
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([email])
+  @@index([departmentId])
+  @@index([isActive])
+}
+
+model Role {
+  id          String         @id @default(uuid())
+  name        String         @unique // "COO", "CEO", "CTO", "CPO", "GESTOR", "COLABORADOR", "AUDITOR"
+  displayName String
+  description String?
+  isSystem    Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique // Ex: "tasks:create:all", "weekly_plan:publish", "org:manage"
+  module      String           // Ex: "TASKS", "WEEKLY_PLAN", "ORG", "MEETINGS", "AUDIT"
+  description String
+  createdAt   DateTime         @default(now())
+
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  assignedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// ==========================================
+// 2. ESTRUTURA ORGANIZACIONAL E EQUIPES
+// ==========================================
+
+model Department {
+  id          String    @id @default(uuid())
+  name        String    @unique // Ex: "Operações Gerais", "Negócios e Estratégia", "Tecnologia e Engenharia", "Produto"
+  code        String    @unique // Ex: "OPS", "CEO_BIZ", "CTO_ENG", "CPO_PROD"
+  description String?
+  color       String    @default("#16a34a")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members     User[]    @relation("DepartmentMembers")
+  tasks       Task[]
+  projects    Project[]
+}
+
+model ReportingRelationship {
+  id            String    @id @default(uuid())
+  managerId     String
+  subordinateId String
+  relationshipType String @default("DIRECT") // DIRECT, DOTTED_LINE
+  startDate     DateTime  @default(now())
+  endDate       DateTime?
+  isActive      Boolean   @default(true)
+  notes         String?
+  createdAt     DateTime  @default(now())
+
+  manager       User      @relation("ManagerRelation", fields: [managerId], references: [id], onDelete: Cascade)
+  subordinate   User      @relation("SubordinateRelation", fields: [subordinateId], references: [id], onDelete: Cascade)
+
+  @@unique([managerId, subordinateId, isActive])
+  @@index([managerId])
+  @@index([subordinateId])
+}
+
+model Team {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  members     TeamMember[]
+}
+
+model TeamMember {
+  teamId      String
+  userId      String
+  roleInTeam  String       @default("MEMBER") // LEADER, MEMBER
+  joinedAt    DateTime     @default(now())
+
+  team        Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+}
+
+// ==========================================
+// 3. PROJETOS, METAS E MARCOS
+// ==========================================
+
+model Project {
+  id            String      @id @default(uuid())
+  name          String      // Ex: "ValTexa Rover V3", "Plataforma SaaS Agrícola"
+  code          String      @unique
+  description   String?
+  status        String      @default("EM_ANDAMENTO") // PLANEJAMENTO, EM_ANDAMENTO, EM_TESTES, CONCLUIDO, PAUSADO
+  priority      String      @default("ALTA") // CRITICA, ALTA, MEDIA, BAIXA
+  budgetEstimated Float?
+  budgetSpent   Float?      @default(0)
+  startDate     DateTime?
+  targetEndDate DateTime?
+  actualEndDate DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  leadId        String?
+  lead          User?       @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
+
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  tasks         Task[]
+  members       ProjectMember[]
+  milestones    Milestone[]
+  goals         Goal[]
+  documents     KnowledgeDocument[]
+
+  @@index([status])
+  @@index([leadId])
+}
+
+model ProjectMember {
+  projectId     String
+  userId        String
+  roleInProject String      @default("CONTRIBUTOR")
+  joinedAt      DateTime    @default(now())
+
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+}
+
+model Milestone {
+  id            String    @id @default(uuid())
+  projectId     String
+  title         String
+  description   String?
+  dueDate       DateTime
+  completedAt   DateTime?
+  status        String    @default("PENDENTE") // PENDENTE, CONCLUIDO, ATRASADO
+  createdAt     DateTime  @default(now())
+
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Goal {
+  id            String    @id @default(uuid())
+  projectId     String?
+  title         String
+  description   String?
+  metric        String?   // Ex: "% de precisão de navegação autônoma"
+  targetValue   Float?
+  currentValue  Float?    @default(0)
+  quarter       String?   // Ex: "2026-Q1"
+  status        String    @default("EM_PROGRESSO")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
+
+// ==========================================
+// 4. MÓDULO CENTRAL DE TAREFAS (20 ATRIBUTOS)
+// ==========================================
+
+model Task {
+  id                 String       @id @default(uuid())
+  taskNumber         Int          @unique // Número sequencial humano (ex: VT-101)
+  title              String
+  description        String       // Descrição detalhada
+  businessObjective  String?      // 3. Objetivo empresarial
+  expectedResult     String?      // 4. Resultado esperado
+  completionCriteria String?      // 15. Critério verificável de conclusão
+  referenceLinks     String?      // 16. JSON string ou texto com documentos/links
+  requiresApproval   Boolean      @default(false) // 17. Necessidade de aprovação
+  notesRestrictions  String?      // 18. Observações e restrições
+  estimatedHours     Float?       // 19. Tempo estimado em horas
+  businessImpact     String?      // 20. Impacto esperado na empresa
+
+  status             String       @default("PLANEJADA")
+  // RASCUNHO, PLANEJADA, AGUARDANDO_INICIO, EM_ANDAMENTO, BLOQUEADA, AGUARDANDO_REVISAO, AJUSTES_SOLICITADOS, CONCLUIDA, CANCELADA
+
+  priority           String       @default("MEDIA") // CRITICA, ALTA, MEDIA, BAIXA
+  criticalReason     String?      // Justificativa obrigatória se crítica
+
+  startDate          DateTime?
+  dueDate            DateTime?
+  actualStartDate    DateTime?
+  completedAt        DateTime?
+
+  createdById        String
+  createdBy          User         @relation("TaskCreator", fields: [createdById], references: [id])
+
+  assignedToId       String?
+  assignedTo         User?        @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  departmentId       String?
+  department         Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  projectId          String?
+  project            Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  // Relações filhas
+  assignees          TaskAssignee[]
+  subtasks           Subtask[]
+  checklistItems     ChecklistItem[]
+  comments           TaskComment[]
+  attachments        TaskAttachment[]
+  statusHistory      TaskStatusHistory[]
+  approvals          Approval[]
+
+  // Dependências relacionais (Grafo de dependência)
+  predecessorDependencies TaskDependency[] @relation("SuccessorTask") // Tarefas que bloqueiam esta
+  successorDependencies   TaskDependency[] @relation("PredecessorTask") // Tarefas bloqueadas por esta
+
+  // Vínculos com Agenda Semanal e Decisões
+  weeklyPlanItems    WeeklyPlanItem[]
+  originatingDecisionId String?
+  originatingDecision Decision?   @relation(fields: [originatingDecisionId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([departmentId])
+  @@index([projectId])
+  @@index([dueDate])
+}
+
+model TaskAssignee {
+  taskId     String
+  userId     String
+  role       String   @default("COLLABORATOR") // PARTICIPANT, REVIEWER
+  assignedAt DateTime @default(now())
+
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+}
+
+model Subtask {
+  id             String    @id @default(uuid())
+  taskId         String
+  title          String
+  description    String?
+  status         String    @default("PENDENTE") // PENDENTE, EM_ANDAMENTO, CONCLUIDA, CANCELADA
+  priority       String    @default("MEDIA")
+  dueDate        DateTime?
+  completedAt    DateTime?
+  estimatedHours Float?
+
+  createdById    String
+  createdBy      User      @relation("SubtaskCreator", fields: [createdById], references: [id])
+
+  assignedToId   String?
+  assignedTo     User?     @relation("SubtaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([assignedToId])
+}
+
+model ChecklistItem {
+  id          String    @id @default(uuid())
+  taskId      String
+  title       String
+  isCompleted Boolean   @default(false)
+  position    Int       @default(0)
+  completedAt DateTime?
+  completedById String?
+
+  completedBy User?     @relation("ChecklistCompleter", fields: [completedById], references: [id], onDelete: SetNull)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model TaskDependency {
+  id             String   @id @default(uuid())
+  predecessorId  String   // Tarefa que deve ser concluída antes
+  successorId    String   // Tarefa que depende da anterior
+  dependencyType String   @default("FINISH_TO_START") // FINISH_TO_START, START_TO_START
+  createdAt      DateTime @default(now())
+
+  predecessor    Task     @relation("PredecessorTask", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor      Task     @relation("SuccessorTask", fields: [successorId], references: [id], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([predecessorId])
+  @@index([successorId])
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  content   String
+  isBlockerReport Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model TaskAttachment {
+  id          String   @id @default(uuid())
+  taskId      String
+  fileName    String
+  fileSize    Int
+  fileType    String
+  fileUrl     String
+  uploadedById String
+  createdAt   DateTime @default(now())
+
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model TaskStatusHistory {
+  id         String   @id @default(uuid())
+  taskId     String
+  oldStatus  String
+  newStatus  String
+  reason     String?
+  changedById String
+  createdAt  DateTime @default(now())
+
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  changedBy  User     @relation(fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model Approval {
+  id           String    @id @default(uuid())
+  taskId       String
+  requestedById String
+  reviewerById String?
+  status       String    @default("PENDENTE") // PENDENTE, APROVADO, AJUSTES_SOLICITADOS, REJEITADO
+  feedback     String?
+  requestedAt  DateTime  @default(now())
+  reviewedAt   DateTime?
+
+  task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requestedBy  User      @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  reviewerBy   User?     @relation("ApprovalReviewer", fields: [reviewerById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+}
+
+// ==========================================
+// 5. AGENDA EXECUTIVA SEMANAL DA LIDERANÇA
+// ==========================================
+
+model WeeklyPlan {
+  id              String           @id @default(uuid())
+  title           String           // Ex: "Planejamento Semana 42 / 2026"
+  year            Int
+  weekNumber      Int
+  startDate       DateTime
+  endDate         DateTime
+  status          String           @default("EM_ELABORACAO")
+  // EM_ELABORACAO, PUBLICADA, EM_EXECUCAO, ENCERRADA, ARQUIVADA
+
+  strategicFocus  String?          // Objetivos prioritários consolidados
+  closureReport   String?          // Relatório gerado no encerramento da semana
+  closedAt        DateTime?
+  publishedAt     DateTime?
+
+  createdById     String
+  createdBy       User             @relation("WeeklyPlanCreator", fields: [createdById], references: [id])
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  items           WeeklyPlanItem[]
+
+  @@unique([year, weekNumber])
+  @@index([status])
+}
+
+model WeeklyPlanItem {
+  id             String      @id @default(uuid())
+  weeklyPlanId   String
+  userId         String      // Executivo responsável no plano (COO, CEO, CTO, CPO)
+  taskId         String?     // Tarefa vinculada (opcional)
+  title          String
+  dayOfWeek      Int?        // 1=Segunda ... 5=Sexta (opcional para compromisso de dia inteiro/semanal)
+  expectedDelivery String?   // Entrega esperada na semana
+  isPriority     Boolean     @default(false)
+  isRolledOver   Boolean     @default(false) // Se veio transferida de semana anterior
+  rolloverReason String?
+  status         String      @default("PLANEJADA") // PLANEJADA, CONCLUIDA, ATRASADA, TRANSFERIDA
+
+  weeklyPlan     WeeklyPlan  @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  user           User        @relation("WeeklyPlanItemUser", fields: [userId], references: [id], onDelete: Cascade)
+  task           Task?       @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([weeklyPlanId])
+  @@index([userId])
+}
+
+// ==========================================
+// 6. CENTRAL DE REUNIÕES, ATAS E DECISÕES
+// ==========================================
+
+model Meeting {
+  id              String               @id @default(uuid())
+  title           String               // Ex: "Alinhamento Semanal da Liderança - ValTexa"
+  meetingType     String               @default("LIDERANCA_SEMANAL") // LIDERANCA_SEMANAL, PRODUTO, ENGENHARIA, ESTRATEGIA, AVULSA
+  objective       String
+  scheduledStart  DateTime
+  scheduledEnd    DateTime
+  durationMinutes Int                  @default(60)
+  locationOrUrl   String?
+  status          String               @default("AGENDADA") // AGENDADA, EM_ANDAMENTO, REALIZADA, CANCELADA
+
+  organizerId     String
+  organizer       User                 @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+
+  minutesText     String?              // Ata da reunião
+  minutesFinalizedAt DateTime?
+
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  participants    MeetingParticipant[]
+  agendaItems     MeetingAgendaItem[]
+  decisions       Decision[]
+
+  @@index([scheduledStart])
+  @@index([status])
+}
+
+model MeetingParticipant {
+  meetingId   String
+  userId      String
+  role        String   @default("PARTICIPANT") // ORGANIZER, PRESENTER, PARTICIPANT
+  attended    Boolean? // Registro de presença: null=aguardando, true=presente, false=ausente
+
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, userId])
+}
+
+model MeetingAgendaItem {
+  id          String   @id @default(uuid())
+  meetingId   String
+  position    Int      @default(0)
+  title       String
+  speaker     String?  // Ex: "CTO", "COO"
+  description String?
+  durationMin Int?
+  linkedTaskId String?
+
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+model Decision {
+  id               String    @id @default(uuid())
+  meetingId        String?
+  description      String    // O que foi decidido
+  rationale        String?   // Justificativa técnica ou empresarial
+  decisionDate     DateTime  @default(now())
+  status           String    @default("APROVADA") // PROPOSTA, EM_DISCUSSAO, APROVADA, REJEITADA, CONVERTIDA_EM_TAREFA
+  category         String    @default("OPERACIONAL") // OPERACIONAL, ESTRATEGICA, TECNICA, PRODUTO, FINANCEIRA
+
+  responsibleUserId String?
+  responsibleUser  User?     @relation("DecisionResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+
+  dueDate          DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  meeting          Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  resultingTasks   Task[]
+
+  @@index([meetingId])
+  @@index([status])
+}
+
+// ==========================================
+// 7. BASE DE CONHECIMENTO CORPORATIVA
+// ==========================================
+
+model KnowledgeDocument {
+  id          String            @id @default(uuid())
+  title       String
+  description String?
+  content     String            // Conteúdo formatado em Markdown
+  category    String            // Institucional, Estratégia, Tecnologia, Produto, Operações, etc.
+  accessLevel String            @default("PUBLIC_INTERNAL") // PUBLIC_INTERNAL, RESTRICTED, CONFIDENTIAL_LEADERSHIP
+  currentVersion Int            @default(1)
+
+  authorId    String
+  author      User              @relation("DocumentAuthor", fields: [authorId], references: [id])
+
+  projectId   String?
+  project     Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  versions    DocumentVersion[]
+
+  @@index([category])
+  @@index([accessLevel])
+}
+
+model DocumentVersion {
+  id         String            @id @default(uuid())
+  documentId String
+  versionNumber Int
+  content    String
+  changeNotes String?
+  createdById String
+  createdAt  DateTime          @default(now())
+
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy  User              @relation("DocumentVersionAuthor", fields: [createdById], references: [id])
+
+  @@unique([documentId, versionNumber])
+}
+
+// ==========================================
+// 8. NOTIFICAÇÕES E AUDITORIA
+// ==========================================
+
+model Notification {
+  id         String    @id @default(uuid())
+  userId     String
+  title      String
+  message    String
+  category   String    // TASK_ASSIGNED, TASK_DUE, TASK_BLOCKED, APPROVAL_REQUEST, MEETING, DECISION
+  link       String?   // Deep-link para o registro
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  userId     String?
+  action     String    // CREATE, UPDATE, DELETE, APPROVE, REJECT, PUBLISH, CLOSE
+  entity     String    // Task, WeeklyPlan, User, Meeting, Decision, Project, Department
+  entityId   String
+  details    String?   // JSON com diff ou descrição
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
