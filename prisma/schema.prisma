@@ -68,6 +68,9 @@ model User {
   createdDocuments KnowledgeDocument[] @relation("DocumentAuthor")
   documentVersions DocumentVersion[]   @relation("DocumentVersionAuthor")
 
+  // Arquivos enviados
+  uploadedFiles   UploadedFile[]
+
   // Notificações e Auditoria
   notifications   Notification[]
   auditLogs       AuditLog[]
@@ -673,3 +676,23 @@ model AuditLog {
   @@index([createdAt])
 }
 
+
+// ==========================================
+// 9. ARQUIVOS (UPLOAD DE DOCUMENTOS, RELATÓRIOS E IMAGENS)
+// ==========================================
+
+model UploadedFile {
+  id           String   @id @default(uuid())
+  originalName String
+  storedName   String   @unique
+  mimeType     String
+  size         Int
+  description  String?
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([uploadedById])
+  @@index([createdAt])
+}

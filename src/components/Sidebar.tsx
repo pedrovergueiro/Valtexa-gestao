@@ -13,6 +13,7 @@ import {
   Users2,
   UsersRound,
   FileText,
+  Paperclip,
   BarChart3,
   Bell,
   Bot,
@@ -37,6 +38,7 @@ export function Sidebar() {
     { name: "Setores e Equipes", href: "/departments", icon: Users2 },
     { name: "Reuniões & Atas", href: "/meetings", icon: UsersRound },
     { name: "Base de Conhecimento", href: "/knowledge", icon: FileText },
+    { name: "Arquivos", href: "/files", icon: Paperclip },
     { name: "Relatórios", href: "/reports", icon: BarChart3 },
     { name: "Assistente IA", href: "/assistant", icon: Bot },
   ];
