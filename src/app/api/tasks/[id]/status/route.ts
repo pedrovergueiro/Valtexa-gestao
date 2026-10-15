@@ -127,25 +127,38 @@ export async function PATCH(
 
       // Se passou para AGUARDANDO_REVISAO, criar registro de aprovação para o criador/COO
       if (targetStatus === "AGUARDANDO_REVISAO") {
-        await tx.approval.create({
-          data: {
-            taskId: id,
-            requestedById: user.userId,
-            reviewerById: task.createdById,
-            status: "PENDENTE",
-          },
+        const alreadyPending = await tx.approval.findFirst({
+          where: { taskId: id, status: "PENDENTE" },
         });
+        if (!alreadyPending) {
+          await tx.approval.create({
+            data: {
+              taskId: id,
+              requestedById: user.userId,
+              reviewerById: task.createdById,
+              status: "PENDENTE",
+            },
+          });
+        }
 
-        // Notificar criador da tarefa
-        await tx.notification.create({
-          data: {
-            userId: task.createdById,
-            title: "Entrega submetida para revisão",
-            message: `${user.name} submeteu a tarefa "${task.title}" para sua aprovação.`,
-            category: "APPROVAL_REQUEST",
-            link: `/tasks/${task.id}`,
-          },
+        // Notificar quem pode aprovar: criador da tarefa e COO(s)
+        const cooUsers = await tx.user.findMany({
+          where: { isActive: true, roles: { some: { role: { name: "COO" } } } },
+          select: { id: true },
         });
+        const reviewerIds = new Set([task.createdById, ...cooUsers.map((u) => u.id)]);
+        reviewerIds.delete(user.userId);
+        for (const reviewerId of reviewerIds) {
+          await tx.notification.create({
+            data: {
+              userId: reviewerId,
+              title: "Entrega submetida para aprovação",
+              message: `${user.name} submeteu a tarefa "${task.title}" para aprovação.`,
+              category: "APPROVAL_REQUEST",
+              link: "/approvals",
+            },
+          });
+        }
       }
 
       // Se foi bloqueada, notificar o criador

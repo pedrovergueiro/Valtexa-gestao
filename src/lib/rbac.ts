@@ -46,13 +46,19 @@ export function canCreateTaskForDepartment(
 
 export function canApproveTask(
   user: SessionPayload | null,
-  task: { createdById: string; departmentId: string | null }
+  task: { createdById: string }
 ): boolean {
   if (!user) return false;
-  // O COO pode aprovar qualquer tarefa criada ou sob gestão global
-  if (isCOO(user)) return true;
-  // O criador da tarefa pode aprová-la se for executivo do setor
-  if (task.createdById === user.userId && isExecutive(user)) return true;
-  return false;
+  // O COO pode aprovar qualquer tarefa; o criador aprova as suas
+  return isCOO(user) || task.createdById === user.userId;
 }
 
+
+export function canEditTask(
+  user: SessionPayload | null,
+  task: { createdById: string }
+): boolean {
+  if (!user) return false;
+  // O COO edita qualquer tarefa; demais usuários apenas as que criaram
+  return isCOO(user) || task.createdById === user.userId;
+}

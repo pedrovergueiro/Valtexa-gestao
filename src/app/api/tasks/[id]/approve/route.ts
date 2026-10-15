@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { isCOO } from "@/lib/rbac";
+import { canApproveTask } from "@/lib/rbac";
 
 export async function POST(
   request: Request,
@@ -35,13 +35,17 @@ export async function POST(
     }
 
     // Permissão: COO ou o criador original da tarefa
-    const isGlobalCOO = isCOO(user);
-    const isCreator = task.createdById === user.userId;
-
-    if (!isGlobalCOO && !isCreator) {
+    if (!canApproveTask(user, task)) {
       return NextResponse.json(
         { error: "Apenas o COO ou o criador da tarefa pode homologar ou solicitar ajustes" },
         { status: 403 }
+      );
+    }
+
+    if (task.status !== "AGUARDANDO_REVISAO") {
+      return NextResponse.json(
+        { error: "Esta tarefa não está aguardando aprovação" },
+        { status: 400 }
       );
     }
 
@@ -70,17 +74,29 @@ export async function POST(
         },
       });
 
-      // Atualizar/criar aprovação
-      await tx.approval.create({
+      // Resolver a solicitação pendente (ou registrar uma, se não houver)
+      const approvalStatus = isApproved ? "APROVADO" : "AJUSTES_SOLICITADOS";
+      const resolved = await tx.approval.updateMany({
+        where: { taskId: id, status: "PENDENTE" },
         data: {
-          taskId: id,
-          requestedById: task.assignedToId || user.userId,
           reviewerById: user.userId,
-          status: isApproved ? "APROVADO" : "AJUSTES_SOLICITADOS",
+          status: approvalStatus,
           feedback: feedback || null,
           reviewedAt: now,
         },
       });
+      if (resolved.count === 0) {
+        await tx.approval.create({
+          data: {
+            taskId: id,
+            requestedById: task.assignedToId || user.userId,
+            reviewerById: user.userId,
+            status: approvalStatus,
+            feedback: feedback || null,
+            reviewedAt: now,
+          },
+        });
+      }
 
       // Notificar o responsável executor
       if (task.assignedToId) {

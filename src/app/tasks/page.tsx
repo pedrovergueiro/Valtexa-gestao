@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CheckSquare,
   Plus,
@@ -63,12 +64,23 @@ const PRIORITY_BADGES: Record<string, { label: string; color: string }> = {
 };
 
 export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-xs text-slate-400">Carregando tarefas...</div>}>
+      <TasksPageContent />
+    </Suspense>
+  );
+}
+
+function TasksPageContent() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlStatus = searchParams.get("status") || "ALL";
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filtros
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  // Filtros (o status pode vir da URL, ex.: cards do painel executivo)
+  const [statusFilter, setStatusFilter] = useState(urlStatus);
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [search, setSearch] = useState("");
 
@@ -138,9 +150,25 @@ export default function TasksPage() {
   };
 
   useEffect(() => {
+    setStatusFilter(urlStatus);
+  }, [urlStatus]);
+
+  useEffect(() => {
     fetchTasks();
-    loadMetadata();
   }, [statusFilter, priorityFilter, search, user]);
+
+  useEffect(() => {
+    loadMetadata();
+  }, [user]);
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "ALL") params.delete("status");
+    else params.set("status", value);
+    const qs = params.toString();
+    router.replace(qs ? `/tasks?${qs}` : "/tasks", { scroll: false });
+  };
 
   const handleAddChecklistInput = () => {
     setFormData((prev) => ({ ...prev, checklist: [...prev.checklist, ""] }));
@@ -263,10 +291,12 @@ export default function TasksPage() {
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusFilterChange(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
           >
             <option value="ALL">Todos os estados</option>
+            <option value="ABERTAS">Abertas (não concluídas)</option>
+            <option value="ATRASADAS">Atrasadas</option>
             <option value="PLANEJADA">Planejada</option>
             <option value="EM_ANDAMENTO">Em Andamento</option>
             <option value="BLOQUEADA">Bloqueada</option>

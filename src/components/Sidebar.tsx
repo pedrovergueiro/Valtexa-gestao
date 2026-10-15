@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import {
   Bot,
   ShieldAlert,
   ChevronRight,
+  FileCheck,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -27,12 +28,36 @@ export function Sidebar() {
   const { user } = useAuth();
 
   const isCOOUser = user?.roles.includes("COO");
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    const loadCount = async () => {
+      try {
+        const res = await fetch("/api/approvals");
+        if (res.ok) {
+          const data = await res.json();
+          setPendingApprovals(data.count || 0);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    loadCount();
+    const interval = setInterval(loadCount, 15000);
+    window.addEventListener("approvals:changed", loadCount);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("approvals:changed", loadCount);
+    };
+  }, [user, pathname]);
 
   const navigation = [
     { name: "Visão Geral", href: "/", icon: LayoutDashboard },
     { name: "Minha Agenda", href: "/my-agenda", icon: CalendarCheck },
     { name: "Agenda Executiva", href: "/weekly-plan", icon: CalendarDays },
     { name: "Tarefas", href: "/tasks", icon: CheckSquare },
+    { name: "Aprovações", href: "/approvals", icon: FileCheck, badge: pendingApprovals },
     { name: "Projetos", href: "/projects", icon: FolderKanban },
     { name: "Organograma", href: "/org", icon: Network },
     { name: "Setores e Equipes", href: "/departments", icon: Users2 },
@@ -80,6 +105,11 @@ export function Sidebar() {
             >
               <item.icon className={`w-4 h-4 ${isActive ? "text-emerald-400" : "text-slate-400"}`} />
               <span className="flex-1">{item.name}</span>
+              {"badge" in item && !!item.badge && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {item.badge}
+                </span>
+              )}
               {isActive && <ChevronRight className="w-3.5 h-3.5 text-emerald-500/70" />}
             </Link>
           );

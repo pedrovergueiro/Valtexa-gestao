@@ -19,6 +19,7 @@ import {
   X,
   MessageSquare,
   Lock,
+  Pencil,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -122,6 +123,31 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   // Approval review feedback
   const [approvalFeedback, setApprovalFeedback] = useState("");
 
+  // Edição da tarefa (criador ou COO)
+  const [departmentsList, setDepartmentsList] = useState<Array<{ id: string; name: string }>>([]);
+  const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string; code: string }>>([]);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    businessObjective: "",
+    expectedResult: "",
+    completionCriteria: "",
+    assignedToId: "",
+    departmentId: "",
+    projectId: "",
+    startDate: "",
+    dueDate: "",
+    priority: "MEDIA",
+    criticalReason: "",
+    requiresApproval: false,
+    estimatedHours: "",
+    businessImpact: "",
+    notesRestrictions: "",
+    referenceLinks: "",
+  });
+
   const fetchTask = async () => {
     try {
       const res = await fetch(`/api/tasks/${taskId}`);
@@ -142,9 +168,72 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       if (res.ok) {
         const data = await res.json();
         setTeamMembers(data.users || []);
+        setDepartmentsList(data.departments || []);
+      }
+      const projRes = await fetch("/api/projects");
+      if (projRes.ok) {
+        setProjectsList((await projRes.json()) || []);
       }
     } catch {
       // ignore
+    }
+  };
+
+  const toDateInput = (value?: string | null) => (value ? new Date(value).toISOString().slice(0, 10) : "");
+
+  const openEditModal = () => {
+    if (!task) return;
+    setEditForm({
+      title: task.title,
+      description: task.description,
+      businessObjective: task.businessObjective || "",
+      expectedResult: task.expectedResult || "",
+      completionCriteria: task.completionCriteria || "",
+      assignedToId: task.assignedToId || "",
+      departmentId: task.department?.id || "",
+      projectId: task.project?.id || "",
+      startDate: toDateInput(task.startDate),
+      dueDate: toDateInput(task.dueDate),
+      priority: task.priority,
+      criticalReason: task.criticalReason || "",
+      requiresApproval: task.requiresApproval,
+      estimatedHours: task.estimatedHours != null ? String(task.estimatedHours) : "",
+      businessImpact: task.businessImpact || "",
+      notesRestrictions: task.notesRestrictions || "",
+      referenceLinks: task.referenceLinks || "",
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editForm.title.trim() || !editForm.description.trim()) {
+      alert("Título e descrição completa são obrigatórios.");
+      return;
+    }
+    if (editForm.priority === "CRITICA" && !editForm.criticalReason.trim()) {
+      alert("Tarefas Críticas exigem justificativa obrigatória.");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      if (res.ok) {
+        setIsEditOpen(false);
+        fetchTask();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar alterações");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar alterações");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -287,6 +376,8 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   const isCreator = task.createdById === user?.id;
   const isAssigned = task.assignedToId === user?.id;
   const canApprove = isCOOUser || isCreator;
+  const canEdit = isCOOUser || isCreator;
+  const isUnderReview = task.status === "AGUARDANDO_REVISAO";
 
   return (
     <div className="space-y-6">
@@ -315,6 +406,17 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+        {canEdit && (
+          <button
+            onClick={openEditModal}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-medium border border-slate-800 flex items-center gap-1.5 transition-colors"
+            title={isCOOUser && !isCreator ? "Editar como COO" : "Editar tarefa"}
+          >
+            <Pencil className="w-3.5 h-3.5 text-emerald-400" />
+            Editar
+          </button>
+        )}
         {/* Quick Action Status Bar */}
         <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 p-1.5 rounded-xl text-xs">
           <span className="text-[11px] text-slate-400 px-2">Estado Atual:</span>
@@ -348,6 +450,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
               Submeter Revisão
             </button>
           )}
+        </div>
         </div>
       </div>
 
@@ -610,7 +713,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
           </div>
 
           {/* Homologação / Aprovação de Entrega (Se exigida) */}
-          {task.requiresApproval && (
+          {(task.requiresApproval || isUnderReview) && (
             <div className="bg-purple-950/20 border border-purple-900/60 rounded-xl p-5 space-y-3 text-xs">
               <div className="flex items-center gap-2 text-purple-300 font-semibold">
                 <FileCheck className="w-4 h-4" />
@@ -620,7 +723,14 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                 Esta entrega requer revisão e aceite formal do COO ou do criador da tarefa.
               </p>
 
-              {canApprove && (
+              {!isUnderReview && (
+                <p className="text-[11px] text-slate-400">
+                  Quando o executor clicar em &quot;Submeter Revisão&quot;, a entrega entra na fila de{" "}
+                  <Link href="/approvals" className="text-purple-300 underline">Aprovações</Link>.
+                </p>
+              )}
+
+              {canApprove && isUnderReview && (
                 <div className="space-y-2 pt-2">
                   <textarea
                     rows={2}
@@ -745,6 +855,231 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                   className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                 >
                   Atribuir Subtarefa
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DA TAREFA (CRIADOR OU COO) */}
+      {isEditOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-100">Editar Tarefa #{task.taskNumber}</h3>
+                <p className="text-[11px] text-slate-400">Somente o criador da tarefa ou o COO podem editar.</p>
+              </div>
+              <button onClick={() => setIsEditOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="font-semibold text-slate-300 block mb-1">Título *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Prioridade</label>
+                  <select
+                    value={editForm.priority}
+                    onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  >
+                    <option value="BAIXA">Baixa</option>
+                    <option value="MEDIA">Média</option>
+                    <option value="ALTA">Alta</option>
+                    <option value="CRITICA">Crítica</option>
+                  </select>
+                </div>
+              </div>
+              {editForm.priority === "CRITICA" && (
+                <div>
+                  <label className="font-semibold text-rose-300 block mb-1">Justificativa Crítica *</label>
+                  <input
+                    type="text"
+                    value={editForm.criticalReason}
+                    onChange={(e) => setEditForm({ ...editForm, criticalReason: e.target.value })}
+                    className="w-full bg-slate-950 border border-rose-900 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">Descrição Completa *</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Objetivo Empresarial</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.businessObjective}
+                    onChange={(e) => setEditForm({ ...editForm, businessObjective: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Resultado Esperado</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.expectedResult}
+                    onChange={(e) => setEditForm({ ...editForm, expectedResult: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">Critério Verificável de Conclusão</label>
+                <textarea
+                  rows={2}
+                  value={editForm.completionCriteria}
+                  onChange={(e) => setEditForm({ ...editForm, completionCriteria: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Responsável</label>
+                  <select
+                    value={editForm.assignedToId}
+                    onChange={(e) => setEditForm({ ...editForm, assignedToId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  >
+                    <option value="">Não atribuído</option>
+                    {teamMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.title})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Setor</label>
+                  <select
+                    value={editForm.departmentId}
+                    onChange={(e) => setEditForm({ ...editForm, departmentId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  >
+                    <option value="">Sem setor</option>
+                    {departmentsList.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Projeto</label>
+                  <select
+                    value={editForm.projectId}
+                    onChange={(e) => setEditForm({ ...editForm, projectId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  >
+                    <option value="">Sem projeto</option>
+                    {projectsList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code} — {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Data de Início</label>
+                  <input
+                    type="date"
+                    value={editForm.startDate}
+                    onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Prazo Final</label>
+                  <input
+                    type="date"
+                    value={editForm.dueDate}
+                    onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Horas Estimadas</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editForm.estimatedHours}
+                    onChange={(e) => setEditForm({ ...editForm, estimatedHours: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Impacto Esperado na Empresa</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.businessImpact}
+                    onChange={(e) => setEditForm({ ...editForm, businessImpact: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Observações e Restrições</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.notesRestrictions}
+                    onChange={(e) => setEditForm({ ...editForm, notesRestrictions: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">Documentos e Links de Referência</label>
+                <input
+                  type="text"
+                  value={editForm.referenceLinks}
+                  onChange={(e) => setEditForm({ ...editForm, referenceLinks: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editForm.requiresApproval}
+                  onChange={(e) => setEditForm({ ...editForm, requiresApproval: e.target.checked })}
+                  className="accent-purple-500"
+                />
+                Exige aprovação formal de conclusão
+              </label>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsEditOpen(false)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold"
+                >
+                  {savingEdit ? "Salvando..." : "Salvar Alterações"}
                 </button>
               </div>
             </form>

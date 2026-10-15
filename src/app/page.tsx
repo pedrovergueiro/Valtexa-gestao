@@ -98,6 +98,8 @@ interface DashboardData {
   }>;
 }
 
+const KPI_CARD = "block bg-slate-900 border rounded-xl p-4 transition-colors cursor-pointer hover:bg-slate-800/60";
+
 const PRIORITY_COLORS: Record<string, string> = {
   CRITICA: "#ef4444",
   ALTA: "#f97316",
@@ -188,17 +190,17 @@ export default function DashboardPage() {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
         {/* Total Abertas */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <Link href="/tasks?status=ABERTAS" className={`${KPI_CARD} border-slate-800 hover:border-slate-600`}>
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>Tarefas Abertas</span>
             <Layers className="w-4 h-4 text-slate-400" />
           </div>
           <div className="text-2xl font-bold text-slate-100">{summary.totalOpenTasks}</div>
           <p className="text-[10px] text-slate-400 mt-1">de {summary.totalTasksAllTime} no histórico total</p>
-        </div>
+        </Link>
 
         {/* Atrasadas */}
-        <div className="bg-slate-900 border border-rose-950/60 rounded-xl p-4">
+        <Link href="/tasks?status=ATRASADAS" className={`${KPI_CARD} border-rose-950/60 hover:border-rose-700`}>
           <div className="flex items-center justify-between text-rose-400 text-xs mb-1">
             <span>Atrasadas</span>
             <AlertTriangle className="w-4 h-4 text-rose-500" />
@@ -207,30 +209,30 @@ export default function DashboardPage() {
           <p className="text-[10px] text-rose-400/70 mt-1">
             {summary.delayedTasksCount > 0 ? "Requer intervenção" : "Em dia"}
           </p>
-        </div>
+        </Link>
 
         {/* Bloqueadas */}
-        <div className="bg-slate-900 border border-amber-950/60 rounded-xl p-4">
+        <Link href="/tasks?status=BLOQUEADA" className={`${KPI_CARD} border-amber-950/60 hover:border-amber-700`}>
           <div className="flex items-center justify-between text-amber-400 text-xs mb-1">
             <span>Bloqueadas</span>
             <ShieldAlert className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-2xl font-bold text-amber-400">{summary.blockedTasksCount}</div>
           <p className="text-[10px] text-slate-400 mt-1">Dependências externas</p>
-        </div>
+        </Link>
 
         {/* Aguardando Revisão */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <Link href="/approvals" className={`${KPI_CARD} border-slate-800 hover:border-blue-700`}>
           <div className="flex items-center justify-between text-blue-400 text-xs mb-1">
             <span>Aguardando Aprovação</span>
             <FileCheck className="w-4 h-4 text-blue-400" />
           </div>
           <div className="text-2xl font-bold text-blue-400">{summary.reviewTasksCount}</div>
           <p className="text-[10px] text-slate-400 mt-1">Submetidas à liderança</p>
-        </div>
+        </Link>
 
         {/* Conclusão no Prazo (%) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <Link href="/tasks?status=CONCLUIDA" className={`${KPI_CARD} border-slate-800 hover:border-emerald-700`}>
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>Cumprimento Prazo</span>
             <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -241,10 +243,10 @@ export default function DashboardPage() {
           <p className="text-[10px] text-slate-400 mt-1">
             {summary.onTimeDenominator > 0 ? `${summary.onTimeDenominator} avaliadas` : "Sem amostras"}
           </p>
-        </div>
+        </Link>
 
         {/* Progresso Semanal (%) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <Link href="/weekly-plan" className={`${KPI_CARD} border-slate-800 hover:border-emerald-700`}>
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>Agenda Semanal</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -253,7 +255,7 @@ export default function DashboardPage() {
             {summary.weeklyPlanCompletionRate !== null ? `${summary.weeklyPlanCompletionRate}%` : "—"}
           </div>
           <p className="text-[10px] text-slate-400 mt-1">{summary.weeklyPlanDenominator} itens planejados</p>
-        </div>
+        </Link>
       </div>
 
       {/* Delayed Tasks Alert Banner (se houver) */}

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { isCOO, isExecutive } from "@/lib/rbac";
+import { canEditTask } from "@/lib/rbac";
 
 export async function GET(
   request: Request,
@@ -103,62 +103,97 @@ export async function PUT(
       return NextResponse.json({ error: "Tarefa não encontrada" }, { status: 404 });
     }
 
-    // Permissão: COO pode editar qualquer tarefa; criador ou executivo do setor pode editar
-    const hasPermission =
-      isCOO(user) ||
-      existing.createdById === user.userId ||
-      (isExecutive(user) && user.departmentId === existing.departmentId);
-
-    if (!hasPermission) {
+    // Permissão: o COO edita qualquer tarefa; demais usuários apenas as que criaram
+    if (!canEditTask(user, existing)) {
       return NextResponse.json(
-        { error: "Sem autorização para alterar esta tarefa" },
+        { error: "Apenas o criador da tarefa ou o COO podem editá-la" },
         { status: 403 }
       );
     }
 
     const body = await request.json();
-    const {
-      title,
-      description,
-      businessObjective,
-      expectedResult,
-      assignedToId,
-      departmentId,
-      startDate,
-      dueDate,
-      priority,
-      criticalReason,
-      projectId,
-      completionCriteria,
-      referenceLinks,
-      requiresApproval,
-      notesRestrictions,
-      estimatedHours,
-      businessImpact,
-    } = body;
+
+    // Campo omitido = mantém o valor atual; string vazia ou null = limpa o campo
+    const text = (key: string, current: string | null) => {
+      if (body[key] === undefined) return current;
+      const v = typeof body[key] === "string" ? body[key].trim() : body[key];
+      return v ? String(v) : null;
+    };
+    const date = (key: string, current: Date | null) => {
+      if (body[key] === undefined) return current;
+      return body[key] ? new Date(body[key]) : null;
+    };
+
+    const title = text("title", existing.title);
+    const description = text("description", existing.description);
+    if (!title || !description) {
+      return NextResponse.json(
+        { error: "Título e descrição completa são obrigatórios" },
+        { status: 400 }
+      );
+    }
+
+    const priority = body.priority ?? existing.priority;
+    const criticalReason = text("criticalReason", existing.criticalReason);
+    if (priority === "CRITICA" && !criticalReason) {
+      return NextResponse.json(
+        { error: "Tarefas de prioridade Crítica exigem justificativa obrigatória" },
+        { status: 400 }
+      );
+    }
+
+    let estimatedHours = existing.estimatedHours;
+    if (body.estimatedHours !== undefined) {
+      const parsed = parseFloat(body.estimatedHours);
+      estimatedHours = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    let referenceLinks = existing.referenceLinks;
+    if (body.referenceLinks !== undefined) {
+      referenceLinks = body.referenceLinks
+        ? typeof body.referenceLinks === "string"
+          ? body.referenceLinks
+          : JSON.stringify(body.referenceLinks)
+        : null;
+    }
+
+    const assignedToId = text("assignedToId", existing.assignedToId);
 
     const updatedTask = await prisma.task.update({
       where: { id },
       data: {
-        title: title ?? existing.title,
-        description: description ?? existing.description,
-        businessObjective: businessObjective ?? existing.businessObjective,
-        expectedResult: expectedResult ?? existing.expectedResult,
-        assignedToId: assignedToId ?? existing.assignedToId,
-        departmentId: departmentId ?? existing.departmentId,
-        startDate: startDate ? new Date(startDate) : existing.startDate,
-        dueDate: dueDate ? new Date(dueDate) : existing.dueDate,
-        priority: priority ?? existing.priority,
-        criticalReason: criticalReason ?? existing.criticalReason,
-        projectId: projectId ?? existing.projectId,
-        completionCriteria: completionCriteria ?? existing.completionCriteria,
-        referenceLinks: referenceLinks ? (typeof referenceLinks === "string" ? referenceLinks : JSON.stringify(referenceLinks)) : existing.referenceLinks,
-        requiresApproval: requiresApproval !== undefined ? !!requiresApproval : existing.requiresApproval,
-        notesRestrictions: notesRestrictions ?? existing.notesRestrictions,
-        estimatedHours: estimatedHours ? parseFloat(estimatedHours) : existing.estimatedHours,
-        businessImpact: businessImpact ?? existing.businessImpact,
+        title,
+        description,
+        businessObjective: text("businessObjective", existing.businessObjective),
+        expectedResult: text("expectedResult", existing.expectedResult),
+        assignedToId,
+        departmentId: text("departmentId", existing.departmentId),
+        startDate: date("startDate", existing.startDate),
+        dueDate: date("dueDate", existing.dueDate),
+        priority,
+        criticalReason,
+        projectId: text("projectId", existing.projectId),
+        completionCriteria: text("completionCriteria", existing.completionCriteria),
+        referenceLinks,
+        requiresApproval: body.requiresApproval !== undefined ? !!body.requiresApproval : existing.requiresApproval,
+        notesRestrictions: text("notesRestrictions", existing.notesRestrictions),
+        estimatedHours,
+        businessImpact: text("businessImpact", existing.businessImpact),
       },
     });
+
+    // Notificar o novo responsável quando a tarefa for reatribuída
+    if (assignedToId && assignedToId !== existing.assignedToId && assignedToId !== user.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: assignedToId,
+          title: "Tarefa atribuída a você",
+          message: `${user.name} atribuiu a você a tarefa: "${updatedTask.title}"`,
+          category: "TASK_ASSIGNED",
+          link: `/tasks/${id}`,
+        },
+      });
+    }
 
     await logAudit({
       userId: user.userId,

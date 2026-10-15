@@ -4,6 +4,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { isCOO, isExecutive } from "@/lib/rbac";
 
+const OPEN_STATUSES = [
+  "RASCUNHO",
+  "PLANEJADA",
+  "AGUARDANDO_INICIO",
+  "EM_ANDAMENTO",
+  "BLOQUEADA",
+  "AGUARDANDO_REVISAO",
+  "AJUSTES_SOLICITADOS",
+];
+
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser();
@@ -22,31 +32,47 @@ export async function GET(request: Request) {
     // Construção segura de filtros
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const and: any[] = [];
 
-    if (status && status !== "ALL") where.status = status;
+    // Filtros virtuais usados pelos cards do painel executivo
+    if (status === "ABERTAS") {
+      where.status = { in: OPEN_STATUSES };
+    } else if (status === "ATRASADAS") {
+      where.status = { in: OPEN_STATUSES };
+      where.dueDate = { lt: new Date() };
+    } else if (status && status !== "ALL") {
+      where.status = status;
+    }
     if (priority && priority !== "ALL") where.priority = priority;
     if (departmentId && departmentId !== "ALL") where.departmentId = departmentId;
     if (assignedToId && assignedToId !== "ALL") where.assignedToId = assignedToId;
     if (projectId && projectId !== "ALL") where.projectId = projectId;
 
     if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { description: { contains: search } },
-        { businessObjective: { contains: search } },
-        { completionCriteria: { contains: search } },
-      ];
+      and.push({
+        OR: [
+          { title: { contains: search } },
+          { description: { contains: search } },
+          { businessObjective: { contains: search } },
+          { completionCriteria: { contains: search } },
+        ],
+      });
     }
 
     // Se o usuário não for executivo ou COO, ele só pode ver tarefas atribuídas a ele, às quais ele participa ou do seu departamento
     if (!isExecutive(user)) {
-      where.OR = [
-        { assignedToId: user.userId },
-        { createdById: user.userId },
-        { assignees: { some: { userId: user.userId } } },
-        { departmentId: user.departmentId },
-      ];
+      and.push({
+        OR: [
+          { assignedToId: user.userId },
+          { createdById: user.userId },
+          { assignees: { some: { userId: user.userId } } },
+          { departmentId: user.departmentId },
+        ],
+      });
     }
+
+    if (and.length > 0) where.AND = and;
 
     const tasks = await prisma.task.findMany({
       where,
